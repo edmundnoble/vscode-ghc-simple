@@ -92,7 +92,9 @@ export class GhciManager implements Disposable {
         Promise<string[]> {
         return new Promise((resolve, reject) => {
             const pending: PendingCommand = { token, commands, resolve, reject };
-            if (this.currentCommand === null) {
+            if (token.isCancellationRequested) {
+                reject("Command cancelled before being queued");
+            } else if (this.currentCommand === null) {
                 this.launchCommand(pending);
             } else {
                 this.pendingCommands.push(pending);
@@ -118,18 +120,26 @@ export class GhciManager implements Disposable {
                     this.pendingCommands.shift();
                 }
 
-                if (this.pendingCommands.length > 0) {
-                    this.launchCommand(this.pendingCommands.shift());
-                }
+                this.launchNextPendingCommand();
             } else {
                 this.currentCommand.lines.push(line);
             }
         }
     }
 
-    launchCommand({ commands, resolve, reject }: PendingCommand) {
+    launchNextPendingCommand() {
+        if (this.pendingCommands.length > 0) {
+            this.launchCommand(this.pendingCommands.shift());
+        }
+    }
+
+    launchCommand({ commands, resolve, reject, token }: PendingCommand) {
         const barrier = '===ghci_barrier_' + Math.random().toString() + '===';
         this.currentCommand = { resolve, reject, barrier, lines: [] };
+        if (token.isCancellationRequested) {
+            reject("Command cancelled before being queued");
+            this.launchNextPendingCommand();
+        }
 
         if (commands.length > 0) {
             this.output.appendLine(`    -> ${commands[0]}`);
